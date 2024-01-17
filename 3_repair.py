@@ -19,8 +19,8 @@ BASH_TEST_PATH = "../../../../bash/run_test.sh"
 POM_PATH="./"
 
 
-TEST_GENERATOR_PATH ="./test_cas_generator_2"
-TEST_GENERATION_BUGGY_FILE_PATH = "../repair/"
+TEST_GENERATOR_PATH ="./test_case_generator_2"
+TEST_GENERATION_BUGGY_FILE_PATH = "./repair"
 
 
 def remove_html_tags(text):
@@ -206,48 +206,62 @@ def getFailTestCount(text):
         return 0
     
 
-def find_java_test_folder(java_repo_path):
-    # Check if the provided path exists
-    if not os.path.exists(java_repo_path):
-        return None
+# def find_java_test_folder(java_repo_path):
+#     # Check if the provided path exists
+#     print(os.getcwd())
+#     print(java_repo_path)
+#     if not os.path.exists(java_repo_path):
+#         return None
 
-    # Walk through the directory tree and find the 'test' or 'tests' folder
-    for root, dirs, files in os.walk(java_repo_path):
-        for dir_name in dirs:
-            if dir_name.lower() == 'test' or dir_name.lower() == 'tests':
-                return os.path.join(root, dir_name)
+#     # Walk through the directory tree and find the 'test' or 'tests' folder
+#     for root, dirs, files in os.walk(java_repo_path):
+#         for dir_name in dirs:
+#             if dir_name.lower() == 'test' or dir_name.lower() == 'tests':
+#                 return os.path.join(root, dir_name)
 
-    return None
+#     return None
+
+def find_java_test_folder(project):
+    if project=="Chart":
+        return "/tests/org/jfree/chart/annotations/junit"
+    if project=="Closure":
+        return "/test/com/google/javascript/jscomp"
+    if project=="Lang":
+        return "/src/test/java/org/apache/commons/lang3"
+
 
 
 
 def test_generation(project,bug,generated_patch,buggy_input):
-    with open(TEST_GENERATOR_PATH+"/generated_patches.json") as gp_file:
+    print(os.getcwd())
+    with open(TEST_GENERATOR_PATH+"/generated_patches.json","w") as gp_file:
         json.dump([generated_patch], gp_file)
 
-    with open(TEST_GENERATOR_PATH+"/test_samples.json") as ts_file:
+    with open(TEST_GENERATOR_PATH+"/test_samples.json","w") as ts_file:
         json.dump([buggy_input], ts_file)
 
-    test_path = find_java_test_folder(TEST_GENERATION_BUGGY_FILE_PATH+"/"+project+"/"+bug+"/")
+    test_path = find_java_test_folder(project)
     if test_path == None:
         print("Test path not found")
         exit()
     print("Test path: ", test_path)
+    test_path="/content/apr-inference"+str(test_path)[1:]
+    print(test_path)
     
     os.chdir(TEST_GENERATOR_PATH)
-    buggy_file_path = TEST_GENERATION_BUGGY_FILE_PATH+"/"+project+"/"+bug+"/"+buggy_input["file_path"]
-
+    buggy_file_path = "/content/apr-inference"+ TEST_GENERATION_BUGGY_FILE_PATH[1:]+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE+"/"+buggy_input["file_path"]
+    project_path= "/content/apr-inference"+ TEST_GENERATION_BUGGY_FILE_PATH[1:]+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE
     command = [
         'python', 'main.py',
         '--buggy_file_path',buggy_file_path,
         '--test_file_dir_path', test_path,
         '--template_file_path', './Templates/template_1.txt',
         '--prompt_dir_path', './prompts',
-        '--buggy_line_number', buggy_input["buggy_line_no"][0],
+        '--buggy_line_number', str(buggy_input["buggy_line_no"][0]),
         '--generated_test_files_dir', './generated_test_cases',
-        '--project_path', './simple-java-code',
+        '--project_path',project_path,
         '--temp_dir', './temp',
-        '--project_name', bug,
+        '--project_name', PREVIOUS_ITERATION_CLONE,
         '--for_missing_test_class_file_path', './Class/missing_test_class/MissingTestClass.java',
         '--num_of_test_cases', '1',
         '--test_bash_path', './test_run.bash',
