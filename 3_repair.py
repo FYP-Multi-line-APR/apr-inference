@@ -18,6 +18,11 @@ BASH_COMPLIE_PATH = "../../../../bash/compile.sh"
 BASH_TEST_PATH = "../../../../bash/run_test.sh"
 POM_PATH="./"
 
+
+TEST_GENERATOR_PATH ="./test_cas_generator_2"
+TEST_GENERATION_BUGGY_FILE_PATH = "../repair/"
+
+
 def remove_html_tags(text):
     soup = BeautifulSoup(text, 'html.parser')
     return soup.get_text()
@@ -157,7 +162,10 @@ def apply_patch(path, buggy_input, patch):
     while index < len(lines):
         if index == start_line-1:
             for i in range(start_line-1,end_line-1):
+                patched_lines.append("\n")
                 index+=1
+            if start_line!=end_line:
+                patched_lines.pop()
             patched_lines.append(patch+"\n")
         patched_lines.append(lines[index])
         index+=1
@@ -182,7 +190,7 @@ def getTestRunResults(projectCompileDir):
     # print(result.stdout)
     os.chdir("../../../../")
     print(os.getcwd())
-    print(result)
+    print(result.stdout)
     print("---------------------\n\n")
     return result
 
@@ -196,9 +204,71 @@ def getFailTestCount(text):
         return failing_test_count
     else:
         return 0
+    
+
+def find_java_test_folder(java_repo_path):
+    # Check if the provided path exists
+    if not os.path.exists(java_repo_path):
+        return None
+
+    # Walk through the directory tree and find the 'test' or 'tests' folder
+    for root, dirs, files in os.walk(java_repo_path):
+        for dir_name in dirs:
+            if dir_name.lower() == 'test' or dir_name.lower() == 'tests':
+                return os.path.join(root, dir_name)
+
+    return None
 
 
-def is_correct(project,bug,iteration):
+
+def test_generation(project,bug,generated_patch,buggy_input):
+    with open(TEST_GENERATOR_PATH+"/generated_patches.json") as gp_file:
+        json.dump([generated_patch], gp_file)
+
+    with open(TEST_GENERATOR_PATH+"/test_samples.json") as ts_file:
+        json.dump([buggy_input], ts_file)
+
+    test_path = find_java_test_folder(TEST_GENERATION_BUGGY_FILE_PATH+"/"+project+"/"+bug+"/")
+    if test_path == None:
+        print("Test path not found")
+        exit()
+    print("Test path: ", test_path)
+    
+    os.chdir(TEST_GENERATOR_PATH)
+    buggy_file_path = TEST_GENERATION_BUGGY_FILE_PATH+"/"+project+"/"+bug+"/"+buggy_input["file_path"]
+
+    command = [
+        'python', 'main.py',
+        '--buggy_file_path',buggy_file_path,
+        '--test_file_dir_path', test_path,
+        '--template_file_path', './Templates/template_1.txt',
+        '--prompt_dir_path', './prompts',
+        '--buggy_line_number', buggy_input["buggy_line_no"][0],
+        '--generated_test_files_dir', './generated_test_cases',
+        '--project_path', './simple-java-code',
+        '--temp_dir', './temp',
+        '--project_name', bug,
+        '--for_missing_test_class_file_path', './Class/missing_test_class/MissingTestClass.java',
+        '--num_of_test_cases', '1',
+        '--test_bash_path', './test_run.bash',
+        '--test_result_dir_path', './test_results',
+        '--extractor_jar_path', './Extractor/target/Extractor-1.0-SNAPSHOT.jar',
+        '--injector_jar_path', './Injector/target/Injector-1.0-SNAPSHOT.jar'
+    ]
+    # Run the command
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    # Print the output
+    print("Command Output:")
+    print(result.stdout)
+    print("---------------------\n\n")
+    print("Command Error:")
+    print(result.stderr)
+    print("---------------------\n\n")
+
+
+
+def is_correct(project,bug,generated_patch,buggy_input):
     curr_itertaion_project_path = REPAIR_PATH+"/"+project+"/"+bug+"/"+CLONE_FILE_NAME+"/"
     prev_itertaion_project_path = REPAIR_PATH+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE+"/"
     # compilation_result =  getCompileResult(curr_itertaion_project_path)
@@ -231,11 +301,32 @@ def is_correct(project,bug,iteration):
     if prev_failing_test_count<curr_failing_test_count:
         return  error_msg , "PARTIALLY"
     
+    test_generation(project,bug,generated_patch,buggy_input)
+    
     return error_msg, None
 
 
 def generate_FID(buggy_input):
-    return "if (dataset == null) {"
+    file_path =  REPAIR_PATH+"/"+project+"/"+bug+"/input.json"
+    with open(file_path, "w") as f:
+        json.dump([buggy_input],f)
+    subprocess.run(['chmod', '+x', '/content/drive/MyDrive/23_FYP-Multi Line APR/FiD-model/model_we/checkpoint/my_experiment/checkpoint/best_dev'])
+    command = [
+        'python', './fid/new_fid/get_predicitons.py',
+        '--model_path', '/content/drive/MyDrive/23_FYP-Multi Line APR/FiD-model/model_we/checkpoint/my_experiment/checkpoint/best_dev',
+        '--eval_data', file_path,
+        '--per_gpu_batch_size', '1',
+        '--n_context', '2',
+        '--name', 'predictions',
+        '--checkpoint_dir', 'checkpoint'
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    with open("./checkpoint/predictions/predictions.txt","r") as pred_file:
+        prediction =  pred_file.read()
+    print(prediction)
+
+    return prediction.split("\t")[-1]
  
 
 def copy_project(project,bug,generated_patches):
@@ -289,7 +380,7 @@ def repair(generated_patches=[],sample_index=0,COMPLETED=False,sample=None):
         generated_patch = generate_FID(sample)
         copy_project(project,bug,generated_patches)
         apply_patch( REPAIR_PATH+"/"+project+"/"+bug+"/"+CLONE_FILE_NAME,sample, generated_patch)
-        correctness_with_error = is_correct(project,bug,sample_index)
+        correctness_with_error = is_correct(project,bug,generated_patch,sample)
         if correctness_with_error[1] =="COMPLETED":
             generated_patches.append(generated_patch)
             return repair(generated_patches,len(test_samples),True,None)
