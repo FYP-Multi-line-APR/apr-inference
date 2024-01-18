@@ -166,7 +166,10 @@ def apply_patch(path, buggy_input, patch):
                 index+=1
             if start_line!=end_line:
                 patched_lines.pop()
-            patched_lines.append(patch+"\n")
+            if patch == "[Delete]":
+                patched_lines.append("\n")
+            else:
+                patched_lines.append(patch+"\n")
         patched_lines.append(lines[index])
         index+=1
     
@@ -180,7 +183,7 @@ def getCompileResult(projectCompileDir):
     os.chdir("../../../../")
     print(os.getcwd())
     print(result)
-    print("---------------------\n\n")
+    print(" 1 ---------------------\n\n")
     return result
 
 def getTestRunResults(projectCompileDir):
@@ -190,8 +193,10 @@ def getTestRunResults(projectCompileDir):
     # print(result.stdout)
     os.chdir("../../../../")
     print(os.getcwd())
-    print(result.stdout)
-    print("---------------------\n\n")
+    # print(result.stderr)not 
+    if not result.stdout:
+        print("COMIPLATION ERROR")
+    print(" 2 ---------------------\n\n")
     return result
 
 def getFailTestCount(text):
@@ -223,7 +228,7 @@ def getFailTestCount(text):
 
 def find_java_test_folder(project):
     if project=="Chart":
-        return "/tests/org/jfree/chart/annotations/junit"
+        return "/tests/org/jfree"
     if project=="Closure":
         return "/test/com/google/javascript/jscomp"
     if project=="Lang":
@@ -245,7 +250,7 @@ def test_generation(project,bug,generated_patch,buggy_input):
         print("Test path not found")
         exit()
     print("Test path: ", test_path)
-    test_path="/content/apr-inference"+str(test_path)[1:]
+    test_path="/content/apr-inference/repair/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE+str(test_path)
     print(test_path)
     
     os.chdir(TEST_GENERATOR_PATH)
@@ -255,30 +260,35 @@ def test_generation(project,bug,generated_patch,buggy_input):
         'python', 'main.py',
         '--buggy_file_path',buggy_file_path,
         '--test_file_dir_path', test_path,
-        '--template_file_path', './Templates/template_1.txt',
-        '--prompt_dir_path', './prompts',
+        '--template_file_path', '/content/apr-inference/test_case_generator_2/Templates/template_1.txt',
+        '--prompt_dir_path', '/content/apr-inference/test_case_generator_2/prompts',
         '--buggy_line_number', str(buggy_input["buggy_line_no"][0]),
-        '--generated_test_files_dir', './generated_test_cases',
+        '--generated_test_files_dir', '/content/apr-inference/test_case_generator_2/generated_test_cases',
         '--project_path',project_path,
-        '--temp_dir', './temp',
+        '--temp_dir', '/content/apr-inference/test_case_generator_2/temp',
         '--project_name', PREVIOUS_ITERATION_CLONE,
-        '--for_missing_test_class_file_path', './Class/missing_test_class/MissingTestClass.java',
-        '--num_of_test_cases', '1',
-        '--test_bash_path', './test_run.bash',
-        '--test_result_dir_path', './test_results',
-        '--extractor_jar_path', './Extractor/target/Extractor-1.0-SNAPSHOT.jar',
-        '--injector_jar_path', './Injector/target/Injector-1.0-SNAPSHOT.jar'
+        '--for_missing_test_class_file_path', '/content/apr-inference/test_case_generator_2/Class/missing_test_class/MissingTestClass.java',
+        '--num_of_test_cases', '3',
+        '--test_bash_path', '/content/apr-inference/test_case_generator_2/test_run.bash',
+        '--test_result_dir_path', '/content/apr-inference/test_case_generator_2/test_results',
+        '--extractor_jar_path', '/content/apr-inference/test_case_generator_2/Extractor/target/Extractor-1.0-SNAPSHOT.jar',
+        '--injector_jar_path', '/content/apr-inference/test_case_generator_2/Injector/target/Injector-1.0-SNAPSHOT.jar'
     ]
     # Run the command
     result = subprocess.run(command, capture_output=True, text=True)
+    print(os.getcwd())
+    os.chdir("/content/apr-inference/")
 
     # Print the output
     print("Command Output:")
     print(result.stdout)
-    print("---------------------\n\n")
+    print(" 3 ---------------------\n\n")
     print("Command Error:")
     print(result.stderr)
-    print("---------------------\n\n")
+    print(" 4 ---------------------\n\n")
+    if "PARTIALLY_CORRECT" in result.stdout:
+        return True
+    return False
 
 
 
@@ -315,7 +325,8 @@ def is_correct(project,bug,generated_patch,buggy_input):
     if prev_failing_test_count<curr_failing_test_count:
         return  error_msg , "PARTIALLY"
     
-    test_generation(project,bug,generated_patch,buggy_input)
+    if test_generation(project,bug,generated_patch,buggy_input):
+        return  error_msg , "PARTIALLY"
     
     return error_msg, None
 
@@ -381,6 +392,10 @@ def write_to_file(project,bug,generated_patches,correctness,iteration,location):
     
 
 def repair(generated_patches=[],sample_index=0,COMPLETED=False,sample=None):
+    print("++++++++++++++++++++++++++")
+    print(generated_patches)
+    print(len(generated_patches))
+    print("++++++++++++++++++++")
     if sample_index >= len(test_samples):
         if COMPLETED:
             write_to_file(project,bug,generated_patches,"COMPLETED",None,None)
