@@ -5,10 +5,11 @@ from ansi2html import Ansi2HTMLConverter
 from bs4 import BeautifulSoup
 import json
 import copy
+from transformers import RobertaTokenizer, T5ForConditionalGeneration
 
 TEST_SAMPLE_WITH_ERROR_PATH="./repair/train_sample"
 REPAIR_PATH="./repair"
-NUMBER_OF_ITERATIONS_PER_LOCATION = 3
+NUMBER_OF_ITERATIONS_PER_LOCATION = 1
 PROJECT_CLONE_PATH = "./projects"
 CLONE_FILE_NAME="clone"
 PREVIOUS_ITERATION_CLONE="clone_previous"
@@ -17,12 +18,17 @@ NO_OF_TEST_CASES = 3
 BASH_COMPLIE_PATH = "../../../../bash/compile.sh"
 BASH_TEST_PATH = "../../../../bash/run_test.sh"
 POM_PATH="./"
-
+NUM_BEAMS = 5
+num_return_sequences = 5
 
 TEST_GENERATOR_PATH ="./test_case_generator_2"
 TEST_GENERATION_BUGGY_FILE_PATH = "./repair"
 
-
+def remove_bug_annotation(sample):
+    a =  sample["ctxs"][0]["txt"]
+    sample["ctxs"][0]["txt"] = a[:a.find("<BUG>")]+"<extra_id_0>"+a[a.find("</BUG>")+6:]
+    return sample
+    
 def remove_html_tags(text):
     soup = BeautifulSoup(text, 'html.parser')
     return soup.get_text()
@@ -35,6 +41,21 @@ def getHtmlErrors(result):
 def getErrorMsg(error_msg):
     return extractCompilationError(remove_html_tags(getHtmlErrors(error_msg)))
     
+def fix_using_code_t5(sample):
+    text =  sample["ctxs"][0]["txt"]
+    tokenizer = RobertaTokenizer.from_pretrained('Salesforce/codet5-small')
+    model = T5ForConditionalGeneration.from_pretrained('Salesforce/codet5-small')
+    input_ids = tokenizer(text, return_tensors="pt").input_ids
+    generated_ids = model.generate(input_ids, max_length=20,num_beams=NUM_BEAMS, num_return_sequences=num_return_sequences)
+    predictions = []
+    for i, output in enumerate(generated_ids):
+        decoded_output = tokenizer.decode(output, skip_special_tokens=True)
+        predictions.append(decoded_output)
+        print("Prediction ", i, ": ", decoded_output)
+    # prediction = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    # print("PREDICTION --> ",prediction)
+    return predictions
+
 
 
 def extract_expected_actual(input_string):
@@ -79,16 +100,6 @@ def getTestFailureError(path):
     except:
         os.chdir("../../../../")
         return None
-
-def find_pom_path(folder):
-    for root, dirs, files in os.walk(folder):
-        #print(dirs)
-        for file in files:
-            # print(file)
-            if file.endswith("pom.xml"):
-                path_to_pom =  os.path.join(root, file)
-                return path_to_pom[:-7]
-    return None
 
 
 
@@ -144,10 +155,8 @@ def remove_newlines(text):
 
 
 def apply_patch(path, buggy_input, patch):
-    print(buggy_input)
 
     if "buggy_line_no" not in buggy_input or "file_path" not in buggy_input:
-        print("buggy line no not found")
         exit()
 
     start_line, end_line = buggy_input["buggy_line_no"]
@@ -181,22 +190,15 @@ def getCompileResult(projectCompileDir):
     # result = subprocess.run(['bash', BASH_COMPLIE_PATH,"./"], capture_output=True, text=True)
     result = subprocess.run(['defects4j', "compile"], capture_output=True, text=True)
     os.chdir("../../../../")
-    print(os.getcwd())
-    print(result)
-    print(" 1 ---------------------\n\n")
     return result
 
 def getTestRunResults(projectCompileDir):
-    print(os.getcwd())
     os.chdir(projectCompileDir)
     result = subprocess.run(['defects4j', "test"], capture_output=True, text=True)
-    # print(result.stdout)
+
     os.chdir("../../../../")
-    print(os.getcwd())
-    # print(result.stderr)not 
     if not result.stdout:
         print("COMIPLATION ERROR")
-    print(" 2 ---------------------\n\n")
     return result
 
 def getFailTestCount(text):
@@ -209,22 +211,6 @@ def getFailTestCount(text):
         return failing_test_count
     else:
         return 0
-    
-
-# def find_java_test_folder(java_repo_path):
-#     # Check if the provided path exists
-#     print(os.getcwd())
-#     print(java_repo_path)
-#     if not os.path.exists(java_repo_path):
-#         return None
-
-#     # Walk through the directory tree and find the 'test' or 'tests' folder
-#     for root, dirs, files in os.walk(java_repo_path):
-#         for dir_name in dirs:
-#             if dir_name.lower() == 'test' or dir_name.lower() == 'tests':
-#                 return os.path.join(root, dir_name)
-
-#     return None
 
 def find_java_test_folder(project):
     if project=="Chart":
@@ -236,58 +222,7 @@ def find_java_test_folder(project):
 
 
 
-
 def test_generation(project,bug,generated_patch,buggy_input):
-    print(os.getcwd())
-    with open(TEST_GENERATOR_PATH+"/generated_patches.json","w") as gp_file:
-        json.dump([generated_patch], gp_file)
-
-    with open(TEST_GENERATOR_PATH+"/test_samples.json","w") as ts_file:
-        json.dump([buggy_input], ts_file)
-
-    test_path = find_java_test_folder(project)
-    if test_path == None:
-        print("Test path not found")
-        exit()
-    print("Test path: ", test_path)
-    test_path="/content/apr-inference/repair/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE+str(test_path)
-    print(test_path)
-    
-    os.chdir(TEST_GENERATOR_PATH)
-    buggy_file_path = "/content/apr-inference"+ TEST_GENERATION_BUGGY_FILE_PATH[1:]+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE+"/"+buggy_input["file_path"]
-    project_path= "/content/apr-inference"+ TEST_GENERATION_BUGGY_FILE_PATH[1:]+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE
-    command = [
-        'python', 'main.py',
-        '--buggy_file_path',buggy_file_path,
-        '--test_file_dir_path', test_path,
-        '--template_file_path', '/content/apr-inference/test_case_generator_2/Templates/template_1.txt',
-        '--prompt_dir_path', '/content/apr-inference/test_case_generator_2/prompts',
-        '--buggy_line_number', str(buggy_input["buggy_line_no"][0]),
-        '--generated_test_files_dir', '/content/apr-inference/test_case_generator_2/generated_test_cases',
-        '--project_path',project_path,
-        '--temp_dir', '/content/apr-inference/test_case_generator_2/temp',
-        '--project_name', PREVIOUS_ITERATION_CLONE,
-        '--for_missing_test_class_file_path', '/content/apr-inference/test_case_generator_2/Class/missing_test_class/MissingTestClass.java',
-        '--num_of_test_cases', '3',
-        '--test_bash_path', '/content/apr-inference/test_case_generator_2/test_run.bash',
-        '--test_result_dir_path', '/content/apr-inference/test_case_generator_2/test_results',
-        '--extractor_jar_path', '/content/apr-inference/test_case_generator_2/Extractor/target/Extractor-1.0-SNAPSHOT.jar',
-        '--injector_jar_path', '/content/apr-inference/test_case_generator_2/Injector/target/Injector-1.0-SNAPSHOT.jar'
-    ]
-    # Run the command
-    result = subprocess.run(command, capture_output=True, text=True)
-    print(os.getcwd())
-    os.chdir("/content/apr-inference/")
-
-    # Print the output
-    print("Command Output:")
-    print(result.stdout)
-    print(" 3 ---------------------\n\n")
-    print("Command Error:")
-    print(result.stderr)
-    print(" 4 ---------------------\n\n")
-    if "PARTIALLY_CORRECT" in result.stdout:
-        return True
     return False
 
 
@@ -332,31 +267,11 @@ def is_correct(project,bug,generated_patch,buggy_input):
 
 
 def generate_FID(buggy_input):
-    file_path =  REPAIR_PATH+"/"+project+"/"+bug+"/input.json"
-    with open(file_path, "w") as f:
-        json.dump([buggy_input],f)
-    subprocess.run(['chmod', '+x', '/content/drive/MyDrive/23_FYP-Multi Line APR/FiD-model/model_we/checkpoint/my_experiment/checkpoint/best_dev'])
-    command = [
-        'python', './fid/new_fid/get_predicitons.py',
-        '--model_path', '/content/drive/MyDrive/23_FYP-Multi Line APR/FiD-model/model_we/checkpoint/my_experiment/checkpoint/best_dev',
-        '--eval_data', file_path,
-        '--per_gpu_batch_size', '1',
-        '--n_context', '2',
-        '--name', 'predictions',
-        '--checkpoint_dir', 'checkpoint'
-    ]
-
-    result = subprocess.run(command, capture_output=True, text=True)
-    with open("./checkpoint/predictions/predictions.txt","r") as pred_file:
-        prediction =  pred_file.read()
-    print(prediction)
-
-    return prediction.split("\t")[-1]
+    print(buggy_input)
+    return fix_using_code_t5(buggy_input)
  
 
 def copy_project(project,bug,generated_patches):
-    # print("Copy project")
-    # print(os.getcwd())
     clone_path = REPAIR_PATH+"/"+project+"/"+bug+"/"+CLONE_FILE_NAME
     previous_clone_path = REPAIR_PATH+"/"+project+"/"+bug+"/"+PREVIOUS_ITERATION_CLONE
     clear_path(clone_path)
@@ -382,16 +297,16 @@ def write_to_file(project,bug,generated_patches,correctness,iteration,location):
         os.system("mkdir "+REPAIR_PATH+"/"+project+"/"+bug+"/"+"FL_"+location+"/"+"IT_"+iteration)
     
     if correctness=="COMPLETED":
-        with open(REPAIR_PATH+"/"+project+"/"+bug+"/"+"complete.json", 'w') as outfile:
+        with open("./"+project+"_"+bug+"_complete.json", 'w') as outfile:
             json.dump(generated_patches, outfile)
         return
     if correctness=="PARTIALLY":
-        with open(REPAIR_PATH+"/"+project+"/"+bug+"/"+"FL_"+location+"/"+"IT_"+iteration+"partial.json", 'w') as outfile:
+        with open("./"+project+"_"+bug+"_partially.json", 'w') as outfile:
             json.dump(generated_patches, outfile)
 
     
 
-def repair(generated_patches=[],sample_index=0,COMPLETED=False,sample=None):
+def repair(generated_patches=[],sample_index=0,COMPLETED=False,exsample=None):
     print("++++++++++++++++++++++++++")
     print(generated_patches)
     print(len(generated_patches))
@@ -401,36 +316,41 @@ def repair(generated_patches=[],sample_index=0,COMPLETED=False,sample=None):
             write_to_file(project,bug,generated_patches,"COMPLETED",None,None)
             exit()
         return 
-    if sample==None:
-        sample = test_samples[sample_index]
+    if exsample==None:
+        sample = copy.deepcopy(test_samples[sample_index])
+    else:
+        sample = copy.deepcopy(exsample)
+    sample = remove_bug_annotation(sample)
 
     iteration =0
     while iteration < NUMBER_OF_ITERATIONS_PER_LOCATION:
         generated_patch = generate_FID(sample)
-        copy_project(project,bug,generated_patches)
-        apply_patch( REPAIR_PATH+"/"+project+"/"+bug+"/"+CLONE_FILE_NAME,sample, generated_patch)
-        correctness_with_error = is_correct(project,bug,generated_patch,sample)
-        if correctness_with_error[1] =="COMPLETED":
-            generated_patches.append(generated_patch)
-            return repair(generated_patches,len(test_samples),True,None)
-        
-        elif correctness_with_error[1]=="PARTIALLY":
-            temp_sample = copy.deepcopy(sample)
-            temp_sample["err"]=correctness_with_error[0]
-            repair(generated_patches+[generated_patch],sample_index+1,False,temp_sample)
+        for patch_index in range(len(generated_patch)):
+            patch = generated_patch[patch_index]
+            copy_project(project,bug,generated_patches)
+            apply_patch( REPAIR_PATH+"/"+project+"/"+bug+"/"+CLONE_FILE_NAME,sample, patch)
+            correctness_with_error = is_correct(project,bug,patch,sample)
+            if correctness_with_error[1] =="COMPLETED":
+                generated_patches.append(patch)
+                return repair(generated_patches,len(test_samples),True,None)
+            
+            elif correctness_with_error[1]=="PARTIALLY":
+                temp_sample = copy.deepcopy(sample)
+                temp_sample["err"]=correctness_with_error[0]
+                repair(generated_patches+[patch],sample_index+1,False,temp_sample)
 
-        else:
-            temp_sample = copy.deepcopy(sample)
-            temp_sample["err"]=correctness_with_error[0]
-            repair(generated_patches+[generated_patch],sample_index+1,False)
+            else:
+                temp_sample = copy.deepcopy(sample)
+                temp_sample["err"]=correctness_with_error[0]
+                repair(generated_patches+[patch],sample_index+1,False)
         iteration+=1
 
 def clear_path(path):
     if os.path.exists(path):
         os.system("rm -rf "+path)
 def clear_and_recreate_path(path):
-    if os.path.exists(path):
-        os.system("rm -rf "+path)
+    # if os.path.exists(path):
+        # os.system("rm -rf "+path)
     os.system("mkdir "+path)
 
 def create_repair_path(path):
@@ -450,11 +370,10 @@ if __name__ == '__main__':
     create_repair_path(REPAIR_PATH+"/"+project)
     clear_and_recreate_path(REPAIR_PATH+"/"+project+"/"+bug)
     test_samples = read_train_sample(TEST_SAMPLE_WITH_ERROR_PATH+"/"+project+"/"+bug+".json")
+    for i in test_samples:
+        for j in i["ctxs"]:
+            print(j["txt"])
+        # print(i["ctxs"])
     repair()
     
     
-
-
-
-
-

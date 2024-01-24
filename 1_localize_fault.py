@@ -16,8 +16,8 @@ if __name__ == '__main__':
     
     #checkout the project
     if checkout:
-        if os.path.exists("./projects/"+project+bug):
-            os.system("rm -rf ./projects/"+project+bug)
+        # if os.path.exists("./projects/"+project+bug):
+        #     os.system("rm -rf ./projects/"+project+bug)
         checkout_project="defects4j checkout -p " + project +" -v "+ bug+"b  -w ./projects/"+project+bug
         os.system(checkout_project)
     

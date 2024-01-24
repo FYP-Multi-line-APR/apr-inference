@@ -197,8 +197,8 @@ def addErroMsg(path,project,bug,save_path,error_msg):
     try:
         if not os.path.exists(save_path):
             os.system("mkdir "+save_path)
-        if os.path.exists(save_path+"/"+project):
-            os.system("rm -rf "+save_path+"/"+project)
+        # if os.path.exists(save_path+"/"+project):
+        #     os.system("rm -rf "+save_path+"/"+project)
         os.system("mkdir "+save_path+"/"+project)
         
         project_path = path+"/"+project+"/"+bug+".json"
@@ -226,6 +226,7 @@ def create_repair_path(path):
         
 
 if __name__ == '__main__':
+    print("STARTED COPPIIING............")
     project=sys.argv[1]
     bug=sys.argv[2]
     project_path = "./projects/"+project+bug
@@ -247,24 +248,25 @@ if __name__ == '__main__':
     #     print("-------")
 
     error_msg = ""
-    result = getCompileResult(pom_path)
-    if checkForCompilationError(result.stdout):
-        error_msg = getErrorMsg(result)
-        if not error_msg:
-            print("Compilation error but no error message found\n\n\n\n")
+    # result = getCompileResult(pom_path)
+    # if checkForCompilationError(result.stdout):
+    #     error_msg = getErrorMsg(result)
+    #     if not error_msg:
+    #         print("Compilation error but no error message found\n\n\n\n")
             
-    else:
-        test_result =  getTestRunResults()
-        fail_tests = ""
-        tests=test_result.stdout.split(" - ")
-        failing_test_count =getFailTestCount(test_result.stdout)
-        if failing_test_count > 0:
-            error_msg = getTestFailureError()
-        print(test_result.stdout)
-        if not error_msg:
-            print("No test failure error message found\n\n\n\n")
-    print(error_msg)
+    # else:
+    #     test_result =  getTestRunResults()
+    #     fail_tests = ""
+    #     tests=test_result.stdout.split(" - ")
+    #     failing_test_count =getFailTestCount(test_result.stdout)
+    #     if failing_test_count > 0:
+    #         error_msg = getTestFailureError()
+    #     print(test_result.stdout)
+    #     if not error_msg:
+    #         print("No test failure error message found\n\n\n\n")
+    # print(error_msg)
     addErroMsg(TEST_SAMPLE_PATH,project,bug,TEST_SAMPLE_WITH_ERROR_PATH,error_msg)
+    print("DONE COPPIIING............")
 
 
 
